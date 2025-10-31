@@ -2,10 +2,10 @@
 
 A comprehensive web-based platform for predicting molecular binding affinity using pre-trained machine learning models. This application enables drug discovery researchers to predict ligand-protein binding scores through an intuitive interface.
 
-🔗 **Live Deployed Project:** [https://srs-drug-design-trib2-molecule.streamlit.app](https://srs-drug-design-trib2-molecule.streamlit.app/)
-
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.28+-red.svg)
+
+🔗 **Live Deployed Project:** [https://srs-drug-design-trib2-molecule.streamlit.app](https://srs-drug-design-trib2-molecule.streamlit.app/)
 
 ## ✨ Features
 
