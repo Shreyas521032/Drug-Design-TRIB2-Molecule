@@ -93,7 +93,6 @@ def load_data(path="data.csv"):
     
 # Sidebar
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/000000/molecule.png", width=80)
     st.title("⚙️ Control Panel")
 
     # Internally load dataset (no user interaction)
@@ -155,9 +154,9 @@ def preprocess_data(df, remove_outliers=True):
     return df, original_shape, df.shape
 
 # Main app logic
-if uploaded_file is not None:
+if data is not None:
     # Load data
-    df = load_data(uploaded_file)
+    df = data
     
     # Preprocessing
     df_processed, orig_shape, clean_shape = preprocess_data(df, show_outliers)
