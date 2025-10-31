@@ -87,6 +87,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+def load_data(path="data.csv"):
+    """Load dataset once and cache it for performance."""
+    return pd.read_csv(path)
+    
 # Sidebar
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/molecule.png", width=80)
@@ -108,7 +112,6 @@ with st.sidebar:
     test_size = st.slider("Test Set Size (%)", 10, 40, 20) / 100
     
     st.markdown("---")
-    st.info("💡 **Tip**: Upload your molecular data to begin the analysis!")
 
 # Load data function
 @st.cache_data
