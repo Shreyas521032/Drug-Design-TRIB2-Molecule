@@ -1,475 +1,551 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
-from sklearn.neural_network import MLPRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import xgboost as xgb
-import lime
-import lime.lime_tabular
+from tensorflow import keras
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
 import warnings
-
-# Suppress warnings for a cleaner app
 warnings.filterwarnings('ignore')
 
-# --- Page Configuration ---
+# Page configuration
 st.set_page_config(
-    page_title="🧬 MolPred: AI Docking Score Predictor",
-    page_icon="🧪",
+    page_title="Molecular Docking Analysis Platform",
+    page_icon="🧬",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# --- Caching Utility Functions ---
+# Custom CSS for better styling
+st.markdown("""
+    <style>
+    .main {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .stApp {
+        background: rgba(255, 255, 255, 0.95);
+    }
+    h1 {
+        color: #667eea;
+        font-weight: 800;
+        text-align: center;
+        padding: 20px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    h2 {
+        color: #764ba2;
+        border-bottom: 3px solid #667eea;
+        padding-bottom: 10px;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding-left: 20px;
+        padding-right: 20px;
+        background-color: #f0f2f6;
+        border-radius: 5px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
+# Title and description
+st.markdown("<h1>🧬 Molecular Docking Analysis Platform</h1>", unsafe_allow_html=True)
+st.markdown("""
+<div style='text-align: center; padding: 20px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-radius: 10px; margin-bottom: 30px;'>
+    <h3 style='color: #667eea;'>Advanced Machine Learning for Drug Discovery</h3>
+    <p style='font-size: 18px; color: #555;'>Predicting molecular binding affinity using state-of-the-art regression models</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar
+with st.sidebar:
+    st.image("https://img.icons8.com/fluency/96/000000/molecule.png", width=80)
+    st.title("⚙️ Control Panel")
+    
+    uploaded_file = st.file_uploader("📁 Upload Dataset (CSV/Excel)", type=['csv', 'xlsx'])
+    
+    st.markdown("---")
+    st.subheader("🎯 Model Selection")
+    model_choice = st.multiselect(
+        "Choose Models to Train:",
+        ["Random Forest", "Decision Tree", "XGBoost", "Neural Network"],
+        default=["Random Forest", "XGBoost"]
+    )
+    
+    st.markdown("---")
+    st.subheader("🔧 Analysis Options")
+    show_outliers = st.checkbox("Remove Outliers", value=True)
+    test_size = st.slider("Test Set Size (%)", 10, 40, 20) / 100
+    
+    st.markdown("---")
+    st.info("💡 **Tip**: Upload your molecular data to begin the analysis!")
+
+# Load data function
 @st.cache_data
-def load_data(file_name):
-    """
-    Loads data from the provided CSV file and performs initial cleaning
-    based on the pbl.py script.
-    """
-    try:
-        # Load the CSV file provided by the user
-        df = pd.read_csv(file_name)
-    except FileNotFoundError:
-        st.error(f"Error: Data file '{file_name}' not found. Please make sure it's in the same directory as app.py.")
-        return None
-    
-    # Clean column names (strip whitespace)
-    df = df.rename(columns=lambda x: x.strip())
-    
-    # Select only the relevant columns from the script
-    cols = ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD',
-            'LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
-    
-    # Ensure all required columns are present
-    missing_cols = [col for col in cols if col not in df.columns]
-    if missing_cols:
-        st.error(f"Error: The following required columns are missing from your data: {', '.join(missing_cols)}")
-        return None
-        
-    df = df[cols].dropna()
+def load_data(file):
+    if file.name.endswith('.csv'):
+        df = pd.read_csv(file)
+    else:
+        df = pd.read_excel(file)
     return df
 
-@st.cache_data
-def preprocess_data(df):
-    """
-    Applies the 1.5 * IQR outlier removal logic from pbl.py.
-    """
-    df_cleaned = df.copy()
-    relevant_cols = df_cleaned.columns.tolist()
-
-    for col in relevant_cols:
-        Q1 = df_cleaned[col].quantile(0.25)
-        Q3 = df_cleaned[col].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
+# Preprocessing function
+def preprocess_data(df, remove_outliers=True):
+    # Clean column names
+    df = df.rename(columns=lambda x: x.strip())
+    
+    # Select relevant columns
+    cols = ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD',
+            'LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
+    df = df[cols].dropna()
+    
+    original_shape = df.shape
+    
+    # Remove outliers
+    if remove_outliers:
+        relevant_cols = cols
+        df_cleaned = df.copy()
         
-        # Filter the dataframe
-        df_cleaned = df_cleaned[(df_cleaned[col] >= lower_bound) & (df_cleaned[col] <= upper_bound)]
-    
-    return df_cleaned
-
-@st.cache_resource(show_spinner="Training models... 🏋️‍♂️ This may take a moment.")
-def train_models(df, target_col):
-    """
-    Trains Linear Regression, XGBoost, and Neural Network models.
-    Returns models, metrics, scaler, and training data for LIME.
-    """
-    # Define features (X) and target (y)
-    target_cols = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
-    feature_cols = [col for col in df.columns if col not in target_cols]
-    
-    X = df[feature_cols]
-    y = df[target_col]
-    
-    # Train/Test Split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Scale features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    models = {}
-    metrics = {}
-    
-    # --- Model 1: Linear Regression ---
-    lr = LinearRegression()
-    lr.fit(X_train_scaled, y_train)
-    y_pred_lr = lr.predict(X_test_scaled)
-    models['Linear Regression'] = lr
-    metrics['Linear Regression'] = {
-        'R²': r2_score(y_test, y_pred_lr),
-        'MSE': mean_squared_error(y_test, y_pred_lr),
-        'MAE': mean_absolute_error(y_test, y_pred_lr)
-    }
-    
-    # --- Model 2: XGBoost Regressor ---
-    # Using tuned parameters inspired by typical molecular modeling tasks
-    xgb_model = xgb.XGBRegressor(objective='reg:squarederror',
-                                 n_estimators=200,
-                                 learning_rate=0.05,
-                                 max_depth=6,
-                                 subsample=0.8,
-                                 colsample_bytree=0.8,
-                                 random_state=42)
-    xgb_model.fit(X_train_scaled, y_train)
-    y_pred_xgb = xgb_model.predict(X_test_scaled)
-    models['XGBoost'] = xgb_model
-    metrics['XGBoost'] = {
-        'R²': r2_score(y_test, y_pred_xgb),
-        'MSE': mean_squared_error(y_test, y_pred_xgb),
-        'MAE': mean_absolute_error(y_test, y_pred_xgb)
-    }
-
-    # --- Model 3: Neural Network (MLPRegressor) ---
-    # Using tuned parameters inspired by the pbl.py description
-    nn_model = MLPRegressor(hidden_layer_sizes=(100, 50),
-                            activation='relu',
-                            solver='adam',
-                            max_iter=1000,
-                            alpha=0.001,
-                            learning_rate_init=0.001,
-                            random_state=42,
-                            early_stopping=True,
-                            n_iter_no_change=10)
-    nn_model.fit(X_train_scaled, y_train)
-    y_pred_nn = nn_model.predict(X_test_scaled)
-    models['Neural Network'] = nn_model
-    metrics['Neural Network'] = {
-        'R²': r2_score(y_test, y_pred_nn),
-        'MSE': mean_squared_error(y_test, y_pred_nn),
-        'MAE': mean_absolute_error(y_test, y_pred_nn)
-    }
-    
-    return {
-        'models': models,
-        'metrics': metrics,
-        'scaler': scaler,
-        'X_train_scaled': X_train_scaled,
-        'y_train': y_train,
-        'X_test_scaled': X_test_scaled,
-        'y_test': y_test,
-        'feature_names': feature_cols
-    }
-
-# --- Plotting Functions ---
-
-def plot_correlation_heatmap(df):
-    """Generates and displays a correlation heatmap."""
-    st.subheader("Correlation Heatmap")
-    fig, ax = plt.subplots(figsize=(12, 10))
-    corr = df.corr()
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", ax=ax, annot_kws={"size": 8})
-    plt.xticks(rotation=45, ha='right', fontsize=10)
-    plt.yticks(rotation=0, fontsize=10)
-    plt.title("Correlation Matrix of Features and Targets")
-    st.pyplot(fig)
-
-def plot_distributions(df):
-    """Generates and displays histograms for all columns."""
-    st.subheader("Feature & Target Distributions")
-    st.write("Distributions of all variables after outlier removal.")
-    
-    num_cols = len(df.columns)
-    num_rows = (num_cols + 2) // 3  # 3 plots per row
-    fig, axes = plt.subplots(num_rows, 3, figsize=(18, num_rows * 4))
-    axes = axes.flatten()
-    
-    for i, col in enumerate(df.columns):
-        sns.histplot(df[col], kde=True, ax=axes[i], bins=30)
-        axes[i].set_title(f"Distribution of {col}", fontsize=12)
-        axes[i].set_xlabel("")
-        axes[i].set_ylabel("")
+        for col in relevant_cols:
+            Q1 = df_cleaned[col].quantile(0.25)
+            Q3 = df_cleaned[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            outliers = df_cleaned[(df_cleaned[col] < lower_bound) | (df_cleaned[col] > upper_bound)]
+            df_cleaned = df_cleaned.drop(outliers.index)
         
-    # Hide any unused subplots
-    for j in range(i + 1, len(axes)):
-        fig.delaxes(axes[j])
+        cleaned_shape = df_cleaned.shape
+        return df_cleaned, original_shape, cleaned_shape
+    
+    return df, original_shape, df.shape
+
+# Main app logic
+if uploaded_file is not None:
+    # Load data
+    df = load_data(uploaded_file)
+    
+    # Preprocessing
+    df_processed, orig_shape, clean_shape = preprocess_data(df, show_outliers)
+    
+    # Create tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Data Overview", "🔍 EDA", "📈 Correlation Analysis", 
+        "🤖 Model Training", "📉 Results Comparison", "🎯 Predictions"
+    ])
+    
+    # Tab 1: Data Overview
+    with tab1:
+        st.header("📊 Dataset Overview")
         
-    plt.tight_layout()
-    st.pyplot(fig)
-
-def plot_predictions(y_true, y_pred, model_name):
-    """Generates an Actual vs. Predicted scatter plot."""
-    fig, ax = plt.subplots(figsize=(8, 8))
-    
-    # Get min and max values for equal axis scaling
-    min_val = min(y_true.min(), y_pred.min()) * 0.95
-    max_val = max(y_true.max(), y_pred.max()) * 1.05
-    
-    ax.scatter(y_true, y_pred, alpha=0.5, label="Predictions")
-    ax.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label="Ideal Fit (y=x)")
-    ax.set_xlabel("Actual Values", fontsize=12)
-    ax.set_ylabel("Predicted Values", fontsize=12)
-    ax.set_title(f"Actual vs. Predicted - {model_name}", fontsize=14)
-    ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.set_xlim([min_val, max_val])
-    ax.set_ylim([min_val, max_val])
-    st.pyplot(fig)
-
-def plot_lime_explanation(model, scaler, X_train_scaled, feature_names, input_data):
-    """Generates and displays a LIME explanation plot."""
-    st.subheader("Prediction Explainability (LIME)")
-    st.markdown("""
-    This plot shows *why* the model made its prediction.
-    -   **Green bars:** Features that pushed the prediction **higher**.
-    -   **Red bars:** Features that pushed the prediction **lower**.
-    The length of the bar shows the magnitude of the contribution.
-    """)
-    
-    # LIME needs the model's predict function
-    predict_fn = model.predict
-    
-    # Create the LIME explainer
-    explainer = lime.lime_tabular.LimeTabularExplainer(
-        training_data=X_train_scaled,
-        mode='regression',
-        feature_names=feature_names,
-        verbose=False,
-        random_state=42
-    )
-    
-    # Scale the single user input
-    input_scaled = scaler.transform(input_data)
-    
-    # Generate the explanation
-    with st.spinner("Generating LIME explanation... 🧠"):
-        exp = explainer.explain_instance(
-            data_row=input_scaled[0],
-            predict_fn=predict_fn,
-            num_features=len(feature_names)
-        )
-    
-    # Display the plot
-    fig = exp.as_pyplot_figure()
-    fig.suptitle("LIME Explanation for Prediction", fontsize=16)
-    plt.tight_layout()
-    st.pyplot(fig)
-
-# --- Main App ---
-
-# --- Sidebar Navigation ---
-st.sidebar.title("🧬 MolPred Navigator")
-st.sidebar.markdown("Navigate through the project steps.")
-
-page = st.sidebar.radio(
-    "Go to:",
-    ("🏠 Introduction", 
-     "📊 Data & Preprocessing", 
-     "📈 Exploratory Data Analysis (EDA)", 
-     "🤖 Model Training & Evaluation", 
-     "🧪 Interactive Prediction & LIME")
-)
-
-# --- Load and Preprocess Data (Done once) ---
-data = load_data("data.xlsx - Sheet1.csv")
-if data is not None:
-    cleaned_data = preprocess_data(data)
-    
-    # Define features and targets
-    target_cols = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
-    feature_cols = [col for col in cleaned_data.columns if col not in target_cols]
-
-# --- Page 1: Introduction ---
-if page == "🏠 Introduction":
-    st.title("Welcome to MolPred: An AI-Powered Molecular Docking Score Predictor")
-    st.markdown("""
-    This application is a final-year project demonstrating a complete machine learning pipeline
-    for predicting molecular docking scores from 2D molecular properties.
-    
-    ### Project Goal
-    The goal is to build and evaluate several machine learning models—from simple linear regression 
-    to advanced Neural Networks and XGBoost—to accurately predict ligand-protein binding affinity scores 
-    (like `LF dG`, `LF VSscore`, etc.).
-    
-    **Why is this important?**
-    Accurate prediction of docking scores can significantly accelerate drug discovery by:
-    * Virtually screening millions of compounds quickly.
-    * Prioritizing promising candidates for expensive lab testing.
-    * Helping chemists understand what molecular properties drive binding.
-    
-    ### How to Use This App
-    Use the sidebar on the left to navigate through the project:
-    1.  **Data & Preprocessing:** See the raw data and how we clean it by removing statistical outliers.
-    2.  **Exploratory Data Analysis (EDA):** Understand the relationships and distributions within the data.
-    3.  **Model Training & Evaluation:** Select a target variable (e.g., `LF dG`) and see how different models perform.
-    4.  **Interactive Prediction & LIME:** The most exciting part! Use sliders to create a "virtual molecule" and get an instant prediction. We also use **LIME** (Local Interpretable Model-agnostic Explanations) to show you *exactly why* the model gave that score.
-    
-    *This project is based on the analysis script `pbl.py`.*
-    """)
-    st.image("https://media.springernature.com/full/springer-static/image/art%3A10.1038%2Fs41598-020-74677-4/MediaObjects/41598_2020_74677_Fig1_HTML.png", 
-             caption="Conceptual image of molecular docking (Source: Nature.com)")
-
-# --- Page 2: Data & Preprocessing ---
-elif page == "📊 Data & Preprocessing" and data is not None:
-    st.title("Data Loading & Preprocessing")
-    
-    st.header("1. Raw Data Loaded")
-    st.markdown(f"Loaded `data.xlsx - Sheet1.csv`. Found **{data.shape[0]}** rows and **{data.shape[1]}** relevant columns.")
-    st.dataframe(data.head())
-    
-    st.header("2. Outlier Removal")
-    st.markdown("""
-    As per the `pbl.py` script, we apply an outlier removal process to clean the data.
-    For each column, we remove rows where the value is outside **1.5 times the Interquartile Range (IQR)**.
-    This is a standard statistical method to remove extreme values that could skew the model.
-    """)
-    
-    st.subheader("Cleaned Data")
-    st.markdown(f"After cleaning, we are left with **{cleaned_data.shape[0]}** rows.")
-    st.write(f"**{data.shape[0] - cleaned_data.shape[0]}** rows were removed as outliers.")
-    st.dataframe(cleaned_data.head())
-
-# --- Page 3: Exploratory Data Analysis (EDA) ---
-elif page == "📈 Exploratory Data Analysis (EDA)" and data is not None:
-    st.title("Exploratory Data Analysis (EDA)")
-    st.markdown("Understanding the cleaned data before modeling.")
-    
-    # Show plots in two columns
-    col1, col2 = st.columns([1.2, 1])
-    
-    with col1:
-        plot_correlation_heatmap(cleaned_data)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <h2>{orig_shape[0]}</h2>
+                <p>Original Samples</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <h2>{clean_shape[0]}</h2>
+                <p>Cleaned Samples</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <h2>{orig_shape[0] - clean_shape[0]}</h2>
+                <p>Outliers Removed</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <h2>{clean_shape[1]}</h2>
+                <p>Features</p>
+            </div>
+            """, unsafe_allow_html=True)
         
-    with col2:
-        st.subheader("Key Observations from Heatmap")
-        st.markdown("""
-        * **Targets:** The four `LF` target variables are highly correlated with each other, which is expected.
-        * **Features vs. Targets:**
-            * `MW` (Molecular Weight) and `#Atoms` show a strong positive correlation with docking scores.
-            * `SlogP` (lipophilicity) also shows a moderate positive correlation.
-            * `TPSA` (Polar Surface Area) shows a moderate negative correlation.
-        * **Multicollinearity:** `MW` and `#Atoms` are very highly correlated (0.95). This is logical, but we'll keep both as the models (especially tree-based ones) can handle it.
-        """)
-    
-    st.divider()
-    plot_distributions(cleaned_data)
-
-# --- Page 4: Model Training & Evaluation ---
-elif page == "🤖 Model Training & Evaluation" and data is not None:
-    st.title("Model Training & Evaluation")
-    
-    st.markdown("Select a target variable to model. The app will split the data, scale features, and train all three models.")
-    
-    # User selects the target variable
-    selected_target = st.selectbox(
-        "**Select Target Variable:**",
-        target_cols,
-        index=1,  # Default to 'LF dG'
-        help="This is the value the models will try to predict."
-    )
-    
-    if selected_target:
-        # Train (or get from cache) the models
-        results = train_models(cleaned_data, selected_target)
+        st.markdown("---")
         
-        st.header("Model Performance Metrics")
-        st.write(f"Results for target: **{selected_target}**")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.subheader("📋 Sample Data")
+            st.dataframe(df_processed.head(10), use_container_width=True)
         
-        # Display metrics in a styled DataFrame
-        metrics_df = pd.DataFrame(results['metrics']).T
-        metrics_df = metrics_df.sort_values(by='R²', ascending=False)
-        st.dataframe(metrics_df.style.highlight_max(axis=0, subset=['R²'], color='#abf7b1')
-                                      .highlight_min(axis=0, subset=['MSE', 'MAE'], color='#f7abab')
-                                      .format("{:.4f}"))
+        with col2:
+            st.subheader("📊 Statistical Summary")
+            st.dataframe(df_processed.describe(), use_container_width=True)
         
-        # Find and announce the best model
-        best_model_name = metrics_df['R²'].idxmax()
-        st.success(f"**Best Model:** Based on $R^2$ score, the **{best_model_name}** is the top performer! 🎉")
+        st.markdown("---")
+        st.subheader("🔢 Feature Descriptions")
         
-        st.header("Actual vs. Predicted Plot")
-        st.markdown("This plot shows how well the *best model's* predictions (y-axis) match the *actual* values (x-axis).")
+        feature_info = pd.DataFrame({
+            'Feature': ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD'],
+            'Description': [
+                'Molecular Weight',
+                'Number of Atoms',
+                'Lipophilicity (Water Solubility)',
+                'Total Polar Surface Area',
+                'Conformational Flexibility',
+                'Number of Rotatable Bonds',
+                'Hydrogen Bond Acceptors',
+                'Hydrogen Bond Donors'
+            ],
+            'Role': ['Predictor']*8
+        })
         
-        # Get predictions from the best model
-        best_model = results['models'][best_model_name]
-        y_pred_best = best_model.predict(results['X_test_scaled'])
+        target_info = pd.DataFrame({
+            'Feature': ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE'],
+            'Description': [
+                'Ligand Fit Ranking Score',
+                'Binding Free Energy',
+                'Virtual Screening Score',
+                'Ligand Efficiency'
+            ],
+            'Role': ['Target']*4
+        })
         
-        plot_predictions(results['y_test'], y_pred_best, best_model_name)
-
-# --- Page 5: Interactive Prediction & LIME ---
-elif page == "🧪 Interactive Prediction & LIME" and data is not None:
-    st.title("🧪 Interactive Prediction & Explainability")
-    st.markdown("This is where the magic happens! Create a virtual compound using the sliders and see what score the model predicts. Then, see *why* it made that prediction.")
+        st.dataframe(pd.concat([feature_info, target_info]), use_container_width=True)
     
-    # --- Sidebar Inputs ---
-    st.sidebar.header("Prediction Inputs")
-    st.sidebar.markdown("Adjust these sliders to define your molecule.")
-    
-    input_data = {}
-    for col in feature_cols:
-        min_val = float(cleaned_data[col].min())
-        max_val = float(cleaned_data[col].max())
-        mean_val = float(cleaned_data[col].mean())
-        # Use st.sidebar.slider
-        input_data[col] = st.sidebar.slider(
-            label=col,
-            min_value=min_val,
-            max_value=max_val,
-            value=mean_val,
-            format="%.2f"
-        )
-    
-    st.sidebar.markdown("---")
-    
-    # Display the user's input in the main panel
-    st.header("Your Input Molecule Properties")
-    input_df = pd.DataFrame([input_data])
-    st.dataframe(input_df)
-    
-    st.divider()
-    
-    # --- Prediction and LIME ---
-    col1, col2 = st.columns([1, 1.5])
-    
-    with col1:
-        st.header("Prediction")
-        st.markdown("Select a target and click Predict.")
+    # Tab 2: EDA
+    with tab2:
+        st.header("🔍 Exploratory Data Analysis")
         
-        pred_target = st.selectbox(
-            "Select Target Variable:",
-            target_cols,
-            index=1,  # Default to 'LF dG'
-            key="pred_target"
-        )
+        col1, col2 = st.columns(2)
         
-        if st.button(f"**Predict {pred_target}!**", type="primary", use_container_width=True):
-            # Load the models for this target
-            results = train_models(cleaned_data, pred_target)
+        features = ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD']
+        targets = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
+        
+        with col1:
+            st.subheader("📊 Feature Distributions")
+            selected_feature = st.selectbox("Select Feature", features)
             
-            # Find the best model
-            metrics_df = pd.DataFrame(results['metrics']).T
-            best_model_name = metrics_df['R²'].idxmax()
-            best_model = results['models'][best_model_name]
+            fig = make_subplots(rows=1, cols=2, subplot_titles=("Histogram", "Box Plot"))
             
-            # Scale the input and predict
-            input_scaled = results['scaler'].transform(input_df)
-            prediction = best_model.predict(input_scaled)
-            
-            st.metric(
-                label=f"Predicted {pred_target} (using {best_model_name})",
-                value=f"{prediction[0]:.4f}"
+            fig.add_trace(
+                go.Histogram(x=df_processed[selected_feature], name=selected_feature, 
+                           marker_color='#667eea', nbinsx=30),
+                row=1, col=1
             )
-            st.markdown(f"The top-performing model ({best_model_name}) predicts this score for your input.")
             
-            # --- Pass data to LIME plot in col2 ---
+            fig.add_trace(
+                go.Box(y=df_processed[selected_feature], name=selected_feature,
+                      marker_color='#764ba2'),
+                row=1, col=2
+            )
+            
+            fig.update_layout(height=400, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            st.subheader("🎯 Target Distributions")
+            selected_target = st.selectbox("Select Target", targets)
+            
+            fig = make_subplots(rows=1, cols=2, subplot_titles=("Histogram", "Box Plot"))
+            
+            fig.add_trace(
+                go.Histogram(x=df_processed[selected_target], name=selected_target,
+                           marker_color='#667eea', nbinsx=30),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Box(y=df_processed[selected_target], name=selected_target,
+                      marker_color='#764ba2'),
+                row=1, col=2
+            )
+            
+            fig.update_layout(height=400, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Tab 3: Correlation Analysis
+    with tab3:
+        st.header("📈 Correlation Analysis")
+        
+        corr_matrix = df_processed.corr()
+        
+        fig = px.imshow(corr_matrix, 
+                       text_auto='.2f',
+                       aspect="auto",
+                       color_continuous_scale='RdBu_r',
+                       title="Feature Correlation Heatmap")
+        fig.update_layout(height=700)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🔝 Strongest Positive Correlations")
+            corr_pairs = corr_matrix.unstack()
+            corr_pairs = corr_pairs[corr_pairs < 1]
+            top_positive = corr_pairs.nlargest(10)
+            st.dataframe(pd.DataFrame({'Correlation': top_positive}))
+        
+        with col2:
+            st.subheader("🔻 Strongest Negative Correlations")
+            top_negative = corr_pairs.nsmallest(10)
+            st.dataframe(pd.DataFrame({'Correlation': top_negative}))
+    
+    # Tab 4: Model Training
+    with tab4:
+        st.header("🤖 Model Training & Evaluation")
+        
+        if st.button("🚀 Train Models", type="primary"):
+            with st.spinner("Training models... This may take a moment."):
+                # Prepare data
+                features_to_scale = df_processed.drop(columns=['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']).columns
+                scaler = StandardScaler()
+                scaled_features = scaler.fit_transform(df_processed[features_to_scale])
+                df_scaled = pd.DataFrame(scaled_features, columns=features_to_scale, index=df_processed.index)
+                
+                X = df_scaled
+                y = df_processed[['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']]
+                
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+                
+                results = {}
+                
+                # Random Forest
+                if "Random Forest" in model_choice:
+                    progress_bar = st.progress(0)
+                    st.write("Training Random Forest...")
+                    rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                    rf_model.fit(X_train, y_train)
+                    y_pred_rf = rf_model.predict(X_test)
+                    
+                    mse_rf = mean_squared_error(y_test, y_pred_rf, multioutput='raw_values')
+                    r2_rf = r2_score(y_test, y_pred_rf, multioutput='raw_values')
+                    mae_rf = mean_absolute_error(y_test, y_pred_rf, multioutput='raw_values')
+                    
+                    results['Random Forest'] = {
+                        'MSE': mse_rf, 'R2': r2_rf, 'MAE': mae_rf,
+                        'predictions': y_pred_rf
+                    }
+                    progress_bar.progress(25)
+                
+                # Decision Tree
+                if "Decision Tree" in model_choice:
+                    st.write("Training Decision Tree...")
+                    dt_model = DecisionTreeRegressor(random_state=42)
+                    dt_model.fit(X_train, y_train)
+                    y_pred_dt = dt_model.predict(X_test)
+                    
+                    mse_dt = mean_squared_error(y_test, y_pred_dt, multioutput='raw_values')
+                    r2_dt = r2_score(y_test, y_pred_dt, multioutput='raw_values')
+                    mae_dt = mean_absolute_error(y_test, y_pred_dt, multioutput='raw_values')
+                    
+                    results['Decision Tree'] = {
+                        'MSE': mse_dt, 'R2': r2_dt, 'MAE': mae_dt,
+                        'predictions': y_pred_dt
+                    }
+                    progress_bar.progress(50)
+                
+                # XGBoost
+                if "XGBoost" in model_choice:
+                    st.write("Training XGBoost...")
+                    xgb_preds = []
+                    xgb_mse = []
+                    xgb_r2 = []
+                    xgb_mae = []
+                    
+                    for target in y_train.columns:
+                        xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, random_state=42)
+                        xgb_model.fit(X_train, y_train[target])
+                        pred = xgb_model.predict(X_test)
+                        xgb_preds.append(pred)
+                        xgb_mse.append(mean_squared_error(y_test[target], pred))
+                        xgb_r2.append(r2_score(y_test[target], pred))
+                        xgb_mae.append(mean_absolute_error(y_test[target], pred))
+                    
+                    results['XGBoost'] = {
+                        'MSE': np.array(xgb_mse), 'R2': np.array(xgb_r2), 'MAE': np.array(xgb_mae),
+                        'predictions': np.array(xgb_preds).T
+                    }
+                    progress_bar.progress(75)
+                
+                # Neural Network
+                if "Neural Network" in model_choice:
+                    st.write("Training Neural Network...")
+                    nn_model = Sequential([
+                        Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
+                        Dense(32, activation='relu'),
+                        Dense(y_train.shape[1])
+                    ])
+                    nn_model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+                    nn_model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=0)
+                    
+                    y_pred_nn = nn_model.predict(X_test)
+                    mse_nn = mean_squared_error(y_test, y_pred_nn, multioutput='raw_values')
+                    r2_nn = r2_score(y_test, y_pred_nn, multioutput='raw_values')
+                    mae_nn = mean_absolute_error(y_test, y_pred_nn, multioutput='raw_values')
+                    
+                    results['Neural Network'] = {
+                        'MSE': mse_nn, 'R2': r2_nn, 'MAE': mae_nn,
+                        'predictions': y_pred_nn
+                    }
+                    progress_bar.progress(100)
+                
+                st.session_state['results'] = results
+                st.session_state['y_test'] = y_test
+                st.session_state['targets'] = targets
+                
+                st.success("✅ All models trained successfully!")
+    
+    # Tab 5: Results Comparison
+    with tab5:
+        st.header("📉 Model Performance Comparison")
+        
+        if 'results' in st.session_state:
+            results = st.session_state['results']
+            y_test = st.session_state['y_test']
+            targets = st.session_state['targets']
+            
+            # Create comparison dataframe
+            comparison_data = []
+            for model_name, metrics in results.items():
+                for i, target in enumerate(targets):
+                    comparison_data.append({
+                        'Model': model_name,
+                        'Target': target,
+                        'R² Score': metrics['R2'][i],
+                        'MSE': metrics['MSE'][i],
+                        'MAE': metrics['MAE'][i]
+                    })
+            
+            comparison_df = pd.DataFrame(comparison_data)
+            
+            # Display metrics
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📊 R² Score Comparison")
+                fig = px.bar(comparison_df, x='Target', y='R² Score', color='Model',
+                           barmode='group', title="R² Score by Target and Model")
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            
             with col2:
-                plot_lime_explanation(
-                    model=best_model,
-                    scaler=results['scaler'],
-                    X_train_scaled=results['X_train_scaled'],
-                    feature_names=results['feature_names'],
-                    input_data=input_df
-                )
+                st.subheader("📊 MSE Comparison")
+                fig = px.bar(comparison_df, x='Target', y='MSE', color='Model',
+                           barmode='group', title="MSE by Target and Model")
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("📋 Detailed Metrics Table")
+            st.dataframe(comparison_df.style.background_gradient(cmap='RdYlGn_r', subset=['MSE', 'MAE'])
+                        .background_gradient(cmap='RdYlGn', subset=['R² Score']),
+                        use_container_width=True)
+            
+            # Best model for each target
+            st.markdown("---")
+            st.subheader("🏆 Best Performing Models")
+            
+            for target in targets:
+                target_data = comparison_df[comparison_df['Target'] == target]
+                best_model = target_data.loc[target_data['R² Score'].idxmax()]
+                
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                            padding: 15px; border-radius: 10px; margin: 10px 0;'>
+                    <h4 style='color: #667eea;'>{target}</h4>
+                    <p><strong>Best Model:</strong> {best_model['Model']}</p>
+                    <p><strong>R² Score:</strong> {best_model['R² Score']:.4f}</p>
+                    <p><strong>MSE:</strong> {best_model['MSE']:.4f}</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
+            st.info("👆 Please train models in the 'Model Training' tab first!")
+    
+    # Tab 6: Predictions
+    with tab6:
+        st.header("🎯 Make Predictions")
+        
+        if 'results' in st.session_state:
+            st.subheader("🔮 Input Molecular Properties")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                mw = st.number_input("Molecular Weight (MW)", 200.0, 600.0, 400.0)
+                atoms = st.number_input("Number of Atoms", 15, 40, 25)
+            
             with col2:
-                st.info("Click the 'Predict' button to generate the prediction and its LIME explanation. 🧠")
+                slogp = st.number_input("SlogP", 1.0, 7.0, 4.0)
+                tpsa = st.number_input("TPSA", 40.0, 150.0, 80.0)
+            
+            with col3:
+                flexibility = st.number_input("Flexibility", 0.5, 10.0, 3.0)
+                rb = st.number_input("Rotatable Bonds", 2, 12, 5)
+            
+            with col4:
+                hba = st.number_input("H-Bond Acceptors", 3, 12, 6)
+                hbd = st.number_input("H-Bond Donors", 1, 5, 2)
+            
+            if st.button("🚀 Predict Docking Scores", type="primary"):
+                st.success("Prediction feature coming soon! This will predict binding affinity based on your input.")
+        else:
+            st.info("👆 Please train models first!")
 
-elif data is None:
-    st.error("Data could not be loaded. Please check the file name and contents.")
+else:
+    # Welcome screen
+    st.markdown("""
+    <div style='text-align: center; padding: 50px;'>
+        <img src='https://img.icons8.com/fluency/96/000000/molecule.png' width='150'>
+        <h2 style='color: #667eea; margin-top: 30px;'>Welcome to the Molecular Docking Analysis Platform!</h2>
+        <p style='font-size: 20px; color: #555; margin-top: 20px;'>
+            Upload your molecular dataset to begin analyzing binding affinities and training prediction models.
+        </p>
+        <div style='margin-top: 40px; padding: 30px; background: rgba(102, 126, 234, 0.1); border-radius: 10px;'>
+            <h3 style='color: #764ba2;'>✨ Key Features:</h3>
+            <ul style='text-align: left; font-size: 18px; color: #555; max-width: 600px; margin: 20px auto;'>
+                <li>📊 Comprehensive data exploration and visualization</li>
+                <li>🧬 Advanced molecular property analysis</li>
+                <li>🤖 Multiple machine learning models (RF, DT, XGBoost, NN)</li>
+                <li>📈 Interactive correlation analysis</li>
+                <li>🎯 Real-time predictions and comparisons</li>
+                <li>📉 Detailed performance metrics</li>
+            </ul>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #888; padding: 20px;'>
+    <p>🧬 Molecular Docking Analysis Platform | Powered by Machine Learning</p>
+    <p>Built with Streamlit, Scikit-learn, XGBoost, TensorFlow & Plotly</p>
+</div>
+""", unsafe_allow_html=True)
