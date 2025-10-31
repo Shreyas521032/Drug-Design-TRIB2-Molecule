@@ -112,11 +112,7 @@ with st.sidebar:
     show_outliers = st.checkbox("Remove Outliers", value=True)
     test_size = st.slider("Test Set Size (%)", 10, 40, 20) / 100
 
-    st.markdown("---")
-
-# --- Main Content ---
-st.success("✅ Dataset loaded internally!")
-    
+    st.markdown("---")    
 
 # Load data function
 @st.cache_data
