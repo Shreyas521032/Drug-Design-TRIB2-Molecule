@@ -89,7 +89,6 @@ st.markdown("""
 
 # Sidebar
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/000000/molecule.png", width=80)
     st.title("⚙️ Control Panel")
     
     uploaded_file = st.file_uploader("📁 Upload Dataset (CSV/Excel)", type=['csv', 'xlsx'])
