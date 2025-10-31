@@ -403,70 +403,94 @@ if data is not None and models_loaded:
                     # Random Forest
                     if "Random Forest" in model_choice and "Random Forest" in models:
                         st.write("📊 Predicting with Random Forest...")
-                        y_pred_rf = models['Random Forest'].predict(X)
-                        
-                        mse_rf = mean_squared_error(y, y_pred_rf, multioutput='raw_values')
-                        r2_rf = r2_score(y, y_pred_rf, multioutput='raw_values')
-                        mae_rf = mean_absolute_error(y, y_pred_rf, multioutput='raw_values')
-                        
-                        results['Random Forest'] = {
-                            'MSE': mse_rf, 'R2': r2_rf, 'MAE': mae_rf,
-                            'predictions': y_pred_rf,
-                            'actual': y.values
-                        }
+                        try:
+                            y_pred_rf = models['Random Forest'].predict(X)
+                            
+                            # Ensure correct shape
+                            if len(y_pred_rf.shape) == 1:
+                                y_pred_rf = y_pred_rf.reshape(-1, 1)
+                            
+                            mse_rf = mean_squared_error(y, y_pred_rf, multioutput='raw_values')
+                            r2_rf = r2_score(y, y_pred_rf, multioutput='raw_values')
+                            mae_rf = mean_absolute_error(y, y_pred_rf, multioutput='raw_values')
+                            
+                            results['Random Forest'] = {
+                                'MSE': mse_rf, 'R2': r2_rf, 'MAE': mae_rf,
+                                'predictions': y_pred_rf,
+                                'actual': y.values
+                            }
+                        except Exception as e:
+                            st.error(f"Error with Random Forest: {str(e)}")
                     
                     # Decision Tree
                     if "Decision Tree" in model_choice and "Decision Tree" in models:
                         st.write("📊 Predicting with Decision Tree...")
-                        y_pred_dt = models['Decision Tree'].predict(X)
-                        
-                        mse_dt = mean_squared_error(y, y_pred_dt, multioutput='raw_values')
-                        r2_dt = r2_score(y, y_pred_dt, multioutput='raw_values')
-                        mae_dt = mean_absolute_error(y, y_pred_dt, multioutput='raw_values')
-                        
-                        results['Decision Tree'] = {
-                            'MSE': mse_dt, 'R2': r2_dt, 'MAE': mae_dt,
-                            'predictions': y_pred_dt,
-                            'actual': y.values
-                        }
+                        try:
+                            y_pred_dt = models['Decision Tree'].predict(X)
+                            
+                            # Ensure correct shape
+                            if len(y_pred_dt.shape) == 1:
+                                y_pred_dt = y_pred_dt.reshape(-1, 1)
+                            
+                            mse_dt = mean_squared_error(y, y_pred_dt, multioutput='raw_values')
+                            r2_dt = r2_score(y, y_pred_dt, multioutput='raw_values')
+                            mae_dt = mean_absolute_error(y, y_pred_dt, multioutput='raw_values')
+                            
+                            results['Decision Tree'] = {
+                                'MSE': mse_dt, 'R2': r2_dt, 'MAE': mae_dt,
+                                'predictions': y_pred_dt,
+                                'actual': y.values
+                            }
+                        except Exception as e:
+                            st.error(f"Error with Decision Tree: {str(e)}")
                     
                     # XGBoost
                     if "XGBoost" in model_choice and "XGBoost" in models:
                         st.write("📊 Predicting with XGBoost...")
-                        xgb_preds = []
-                        xgb_mse = []
-                        xgb_r2 = []
-                        xgb_mae = []
-                        
-                        for target in targets:
-                            if target in models['XGBoost']:
-                                pred = models['XGBoost'][target].predict(X)
-                                xgb_preds.append(pred)
-                                xgb_mse.append(mean_squared_error(y[target], pred))
-                                xgb_r2.append(r2_score(y[target], pred))
-                                xgb_mae.append(mean_absolute_error(y[target], pred))
-                        
-                        if xgb_preds:
-                            results['XGBoost'] = {
-                                'MSE': np.array(xgb_mse), 'R2': np.array(xgb_r2), 'MAE': np.array(xgb_mae),
-                                'predictions': np.array(xgb_preds).T,
-                                'actual': y.values
-                            }
+                        try:
+                            xgb_preds = []
+                            xgb_mse = []
+                            xgb_r2 = []
+                            xgb_mae = []
+                            
+                            for target in targets:
+                                if target in models['XGBoost']:
+                                    pred = models['XGBoost'][target].predict(X)
+                                    xgb_preds.append(pred)
+                                    xgb_mse.append(mean_squared_error(y[target], pred))
+                                    xgb_r2.append(r2_score(y[target], pred))
+                                    xgb_mae.append(mean_absolute_error(y[target], pred))
+                            
+                            if xgb_preds:
+                                results['XGBoost'] = {
+                                    'MSE': np.array(xgb_mse), 'R2': np.array(xgb_r2), 'MAE': np.array(xgb_mae),
+                                    'predictions': np.array(xgb_preds).T,
+                                    'actual': y.values
+                                }
+                        except Exception as e:
+                            st.error(f"Error with XGBoost: {str(e)}")
                     
                     # Neural Network
                     if "Neural Network" in model_choice and "Neural Network" in models:
                         st.write("📊 Predicting with Neural Network...")
-                        y_pred_nn = models['Neural Network'].predict(X, verbose=0)
-                        
-                        mse_nn = mean_squared_error(y, y_pred_nn, multioutput='raw_values')
-                        r2_nn = r2_score(y, y_pred_nn, multioutput='raw_values')
-                        mae_nn = mean_absolute_error(y, y_pred_nn, multioutput='raw_values')
-                        
-                        results['Neural Network'] = {
-                            'MSE': mse_nn, 'R2': r2_nn, 'MAE': mae_nn,
-                            'predictions': y_pred_nn,
-                            'actual': y.values
-                        }
+                        try:
+                            y_pred_nn = models['Neural Network'].predict(X, verbose=0)
+                            
+                            # Ensure correct shape
+                            if len(y_pred_nn.shape) == 1:
+                                y_pred_nn = y_pred_nn.reshape(-1, 1)
+                            
+                            mse_nn = mean_squared_error(y, y_pred_nn, multioutput='raw_values')
+                            r2_nn = r2_score(y, y_pred_nn, multioutput='raw_values')
+                            mae_nn = mean_absolute_error(y, y_pred_nn, multioutput='raw_values')
+                            
+                            results['Neural Network'] = {
+                                'MSE': mse_nn, 'R2': r2_nn, 'MAE': mae_nn,
+                                'predictions': y_pred_nn,
+                                'actual': y.values
+                            }
+                        except Exception as e:
+                            st.error(f"Error with Neural Network: {str(e)}")
                     
                     st.session_state['results'] = results
                     st.session_state['y_true'] = y
@@ -478,12 +502,25 @@ if data is not None and models_loaded:
                     st.subheader("📋 Sample Predictions")
                     for model_name, metrics in results.items():
                         st.markdown(f"**{model_name}:**")
-                        pred_df = pd.DataFrame(
-                            metrics['predictions'][:10],
-                            columns=targets
-                        )
-                        pred_df.index.name = "Sample"
-                        st.dataframe(pred_df, use_container_width=True)
+                        try:
+                            # Handle different prediction shapes
+                            preds = metrics['predictions'][:10]
+                            if len(preds.shape) == 1:
+                                # Single target prediction
+                                pred_df = pd.DataFrame(
+                                    preds.reshape(-1, 1),
+                                    columns=[targets[0]]
+                                )
+                            else:
+                                # Multiple targets
+                                pred_df = pd.DataFrame(
+                                    preds,
+                                    columns=targets[:preds.shape[1]]
+                                )
+                            pred_df.index.name = "Sample"
+                            st.dataframe(pred_df, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error displaying predictions for {model_name}: {str(e)}")
                         st.markdown("---")
         else:
             st.info("👈 Please select at least one model from the sidebar!")
@@ -499,13 +536,14 @@ if data is not None and models_loaded:
             # Create comparison dataframe
             comparison_data = []
             for model_name, metrics in results.items():
-                for i, target in enumerate(targets):
+                n_targets = len(metrics['R2']) if hasattr(metrics['R2'], '__len__') else 1
+                for i in range(min(n_targets, len(targets))):
                     comparison_data.append({
                         'Model': model_name,
-                        'Target': target,
-                        'R² Score': metrics['R2'][i],
-                        'MSE': metrics['MSE'][i],
-                        'MAE': metrics['MAE'][i]
+                        'Target': targets[i] if n_targets > 1 else targets[0],
+                        'R² Score': metrics['R2'][i] if n_targets > 1 else metrics['R2'],
+                        'MSE': metrics['MSE'][i] if n_targets > 1 else metrics['MSE'],
+                        'MAE': metrics['MAE'][i] if n_targets > 1 else metrics['MAE']
                     })
             
             comparison_df = pd.DataFrame(comparison_data)
