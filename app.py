@@ -220,9 +220,9 @@ if data is not None and models_loaded:
     df_processed, orig_shape, clean_shape = preprocess_data(data, show_outliers)
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Data Overview", "🔍 EDA", "📈 Correlation Analysis", 
-        "🎯 Model Predictions", "📉 Results Comparison"
+        "🎯 Single Prediction", "📉 Batch Predictions", "📊 Model Evaluation"
     ])
     
     # Tab 1: Data Overview
