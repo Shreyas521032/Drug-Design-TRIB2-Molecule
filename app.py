@@ -904,6 +904,6 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #888; padding: 20px;'>
     <p>🧬 Molecular Docking Prediction Platform | Powered by Pre-trained ML Models</p>
-    <p>Built with Streamlit, Scikit-learn, XGBoost, TensorFlow & Plotly</p>
+    <p>Built with ❤️ for Drug Discovery Research by Shreyas, Ruthvek and Shaurya</p>
 </div>
 """, unsafe_allow_html=True)
