@@ -53,6 +53,13 @@ st.markdown("""
         text-align: center;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
+    .prediction-card {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #667eea;
+    }
     .stTabs [data-baseweb="tab-list"] {
         gap: 24px;
     }
@@ -83,7 +90,10 @@ st.markdown("""
 @st.cache_data
 def load_data(path="data.csv"):
     """Load dataset once and cache it for performance."""
-    return pd.read_csv(path)
+    try:
+        return pd.read_csv(path)
+    except:
+        return None
 
 @st.cache_resource
 def load_models():
@@ -116,13 +126,11 @@ def load_models():
         if os.path.exists(nn_path):
             try:
                 if nn_path.endswith('.pkl'):
-                    # Try loading as joblib first (sklearn MLPRegressor or similar)
                     models['Neural Network'] = joblib.load(nn_path)
                     nn_loaded = True
                     break
             except:
                 try:
-                    # Try loading as Keras model
                     models['Neural Network'] = load_model(nn_path)
                     nn_loaded = True
                     break
@@ -150,19 +158,24 @@ def load_models():
     
     return models, len(models) > 0
 
+@st.cache_resource
+def get_scaler(df):
+    """Fit and cache the scaler based on the dataset."""
+    features_to_scale = ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD']
+    scaler = StandardScaler()
+    scaler.fit(df[features_to_scale])
+    return scaler
+
 def preprocess_data(df, remove_outliers=True):
     """Clean and preprocess the data."""
-    # Clean column names
     df = df.rename(columns=lambda x: x.strip())
     
-    # Select relevant columns
     cols = ['MW', '#Atoms', 'SlogP', 'TPSA', 'Flexibility', '#RB', 'HBA', 'HBD',
             'LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
     df = df[cols].dropna()
     
     original_shape = df.shape
     
-    # Remove outliers
     if remove_outliers:
         relevant_cols = cols
         df_cleaned = df.copy()
@@ -180,6 +193,34 @@ def preprocess_data(df, remove_outliers=True):
         return df_cleaned, original_shape, cleaned_shape
     
     return df, original_shape, df.shape
+
+def make_prediction(input_data, model, model_name, scaler):
+    """Make prediction using the specified model."""
+    try:
+        # Scale the input
+        scaled_input = scaler.transform(input_data)
+        
+        # Make prediction
+        if model_name == 'XGBoost':
+            predictions = {}
+            for target_name, target_model in model.items():
+                pred = target_model.predict(scaled_input)
+                predictions[target_name] = pred[0]
+            return predictions
+        else:
+            pred = model.predict(scaled_input)
+            if len(pred.shape) == 1:
+                pred = pred.reshape(1, -1)
+            
+            targets = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
+            predictions = {}
+            for i, target in enumerate(targets[:pred.shape[1]]):
+                predictions[target] = pred[0][i]
+            
+            return predictions
+    except Exception as e:
+        st.error(f"Error making prediction with {model_name}: {str(e)}")
+        return None
 
 # Sidebar
 with st.sidebar:
@@ -218,6 +259,9 @@ data = load_data("data.csv")
 if data is not None and models_loaded:
     # Preprocessing
     df_processed, orig_shape, clean_shape = preprocess_data(data, show_outliers)
+    
+    # Get the scaler
+    scaler = get_scaler(df_processed)
     
     # Create tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -381,17 +425,163 @@ if data is not None and models_loaded:
             top_negative = corr_pairs.nsmallest(10)
             st.dataframe(pd.DataFrame({'Correlation': top_negative}))
     
-    # Tab 4: Model Predictions
+    # Tab 4: Single Prediction
     with tab4:
-        st.header("🎯 Model Predictions on Test Data")
+        st.header("🎯 Single Molecule Prediction")
+        
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                    padding: 15px; border-radius: 10px; margin-bottom: 20px;'>
+            <p style='margin: 0;'>Enter molecular properties below to predict binding affinity scores.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         if model_choice:
-            if st.button("🚀 Generate Predictions", type="primary"):
+            # Get statistics for reference
+            stats = df_processed[features].describe()
+            
+            st.subheader("📝 Enter Molecular Properties")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                mw = st.number_input(
+                    "Molecular Weight (MW)",
+                    min_value=0.0,
+                    value=float(stats.loc['mean', 'MW']),
+                    help=f"Range: {stats.loc['min', 'MW']:.2f} - {stats.loc['max', 'MW']:.2f}"
+                )
+                
+                atoms = st.number_input(
+                    "Number of Atoms (#Atoms)",
+                    min_value=0,
+                    value=int(stats.loc['mean', '#Atoms']),
+                    help=f"Range: {stats.loc['min', '#Atoms']:.0f} - {stats.loc['max', '#Atoms']:.0f}"
+                )
+            
+            with col2:
+                slogp = st.number_input(
+                    "Lipophilicity (SlogP)",
+                    value=float(stats.loc['mean', 'SlogP']),
+                    help=f"Range: {stats.loc['min', 'SlogP']:.2f} - {stats.loc['max', 'SlogP']:.2f}"
+                )
+                
+                tpsa = st.number_input(
+                    "Total Polar Surface Area (TPSA)",
+                    min_value=0.0,
+                    value=float(stats.loc['mean', 'TPSA']),
+                    help=f"Range: {stats.loc['min', 'TPSA']:.2f} - {stats.loc['max', 'TPSA']:.2f}"
+                )
+            
+            with col3:
+                flexibility = st.number_input(
+                    "Flexibility",
+                    min_value=0.0,
+                    value=float(stats.loc['mean', 'Flexibility']),
+                    help=f"Range: {stats.loc['min', 'Flexibility']:.2f} - {stats.loc['max', 'Flexibility']:.2f}"
+                )
+                
+                rb = st.number_input(
+                    "Rotatable Bonds (#RB)",
+                    min_value=0,
+                    value=int(stats.loc['mean', '#RB']),
+                    help=f"Range: {stats.loc['min', '#RB']:.0f} - {stats.loc['max', '#RB']:.0f}"
+                )
+            
+            with col4:
+                hba = st.number_input(
+                    "H-Bond Acceptors (HBA)",
+                    min_value=0,
+                    value=int(stats.loc['mean', 'HBA']),
+                    help=f"Range: {stats.loc['min', 'HBA']:.0f} - {stats.loc['max', 'HBA']:.0f}"
+                )
+                
+                hbd = st.number_input(
+                    "H-Bond Donors (HBD)",
+                    min_value=0,
+                    value=int(stats.loc['mean', 'HBD']),
+                    help=f"Range: {stats.loc['min', 'HBD']:.0f} - {stats.loc['max', 'HBD']:.0f}"
+                )
+            
+            st.markdown("---")
+            
+            # Create input dataframe
+            input_data = pd.DataFrame({
+                'MW': [mw],
+                '#Atoms': [atoms],
+                'SlogP': [slogp],
+                'TPSA': [tpsa],
+                'Flexibility': [flexibility],
+                '#RB': [rb],
+                'HBA': [hba],
+                'HBD': [hbd]
+            })
+            
+            # Show input summary
+            with st.expander("📋 View Input Summary"):
+                st.dataframe(input_data.T.rename(columns={0: 'Value'}), use_container_width=True)
+            
+            st.markdown("---")
+            
+            if st.button("🚀 Predict Binding Affinity", type="primary", use_container_width=True):
+                with st.spinner("Making predictions..."):
+                    st.subheader("🎯 Prediction Results")
+                    
+                    all_predictions = {}
+                    
+                    for model_name in model_choice:
+                        if model_name in models:
+                            predictions = make_prediction(input_data, models[model_name], model_name, scaler)
+                            
+                            if predictions:
+                                all_predictions[model_name] = predictions
+                                
+                                st.markdown(f"""
+                                <div class='prediction-card'>
+                                    <h4 style='color: #667eea; margin-top: 0;'>🤖 {model_name}</h4>
+                                """, unsafe_allow_html=True)
+                                
+                                cols = st.columns(len(predictions))
+                                for i, (target, value) in enumerate(predictions.items()):
+                                    with cols[i]:
+                                        st.metric(target, f"{value:.4f}")
+                                
+                                st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    # Comparison chart
+                    if len(all_predictions) > 1:
+                        st.markdown("---")
+                        st.subheader("📊 Model Comparison")
+                        
+                        comparison_data = []
+                        for model_name, predictions in all_predictions.items():
+                            for target, value in predictions.items():
+                                comparison_data.append({
+                                    'Model': model_name,
+                                    'Target': target,
+                                    'Predicted Value': value
+                                })
+                        
+                        comparison_df = pd.DataFrame(comparison_data)
+                        
+                        fig = px.bar(comparison_df, x='Target', y='Predicted Value', 
+                                   color='Model', barmode='group',
+                                   title="Predicted Values Comparison Across Models")
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("👈 Please select at least one model from the sidebar to make predictions!")
+    
+    # Tab 5: Batch Predictions
+    with tab5:
+        st.header("📉 Batch Predictions on Test Data")
+        
+        if model_choice:
+            if st.button("🚀 Generate Batch Predictions", type="primary"):
                 with st.spinner("Generating predictions..."):
                     # Prepare data
                     features_to_scale = df_processed.drop(columns=['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']).columns
-                    scaler = StandardScaler()
-                    scaled_features = scaler.fit_transform(df_processed[features_to_scale])
+                    scaled_features = scaler.transform(df_processed[features_to_scale])
                     df_scaled = pd.DataFrame(scaled_features, columns=features_to_scale, index=df_processed.index)
                     
                     X = df_scaled
@@ -406,7 +596,6 @@ if data is not None and models_loaded:
                         try:
                             y_pred_rf = models['Random Forest'].predict(X)
                             
-                            # Ensure correct shape
                             if len(y_pred_rf.shape) == 1:
                                 y_pred_rf = y_pred_rf.reshape(-1, 1)
                             
@@ -428,7 +617,6 @@ if data is not None and models_loaded:
                         try:
                             y_pred_dt = models['Decision Tree'].predict(X)
                             
-                            # Ensure correct shape
                             if len(y_pred_dt.shape) == 1:
                                 y_pred_dt = y_pred_dt.reshape(-1, 1)
                             
@@ -476,7 +664,6 @@ if data is not None and models_loaded:
                         try:
                             y_pred_nn = models['Neural Network'].predict(X, verbose=0)
                             
-                            # Ensure correct shape
                             if len(y_pred_nn.shape) == 1:
                                 y_pred_nn = y_pred_nn.reshape(-1, 1)
                             
@@ -499,20 +686,17 @@ if data is not None and models_loaded:
                     st.success("✅ Predictions generated successfully!")
                     
                     # Show sample predictions
-                    st.subheader("📋 Sample Predictions")
+                    st.subheader("📋 Sample Predictions (First 10)")
                     for model_name, metrics in results.items():
                         st.markdown(f"**{model_name}:**")
                         try:
-                            # Handle different prediction shapes
                             preds = metrics['predictions'][:10]
                             if len(preds.shape) == 1:
-                                # Single target prediction
                                 pred_df = pd.DataFrame(
                                     preds.reshape(-1, 1),
                                     columns=[targets[0]]
                                 )
                             else:
-                                # Multiple targets
                                 pred_df = pd.DataFrame(
                                     preds,
                                     columns=targets[:preds.shape[1]]
@@ -525,9 +709,9 @@ if data is not None and models_loaded:
         else:
             st.info("👈 Please select at least one model from the sidebar!")
     
-    # Tab 5: Results Comparison
-    with tab5:
-        st.header("📉 Model Performance Comparison")
+    # Tab 6: Model Evaluation
+    with tab6:
+        st.header("📊 Model Performance Evaluation")
         
         if 'results' in st.session_state:
             results = st.session_state['results']
@@ -577,18 +761,19 @@ if data is not None and models_loaded:
             
             for target in targets:
                 target_data = comparison_df[comparison_df['Target'] == target]
-                best_model = target_data.loc[target_data['R² Score'].idxmax()]
-                
-                st.markdown(f"""
-                <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
-                            padding: 15px; border-radius: 10px; margin: 10px 0;'>
-                    <h4 style='color: #667eea;'>{target}</h4>
-                    <p><strong>Best Model:</strong> {best_model['Model']}</p>
-                    <p><strong>R² Score:</strong> {best_model['R² Score']:.4f}</p>
-                    <p><strong>MSE:</strong> {best_model['MSE']:.4f}</p>
-                    <p><strong>MAE:</strong> {best_model['MAE']:.4f}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                if not target_data.empty:
+                    best_model = target_data.loc[target_data['R² Score'].idxmax()]
+                    
+                    st.markdown(f"""
+                    <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                                padding: 15px; border-radius: 10px; margin: 10px 0;'>
+                        <h4 style='color: #667eea;'>{target}</h4>
+                        <p><strong>Best Model:</strong> {best_model['Model']}</p>
+                        <p><strong>R² Score:</strong> {best_model['R² Score']:.4f}</p>
+                        <p><strong>MSE:</strong> {best_model['MSE']:.4f}</p>
+                        <p><strong>MAE:</strong> {best_model['MAE']:.4f}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
             
             # Prediction vs Actual plots
             st.markdown("---")
@@ -601,24 +786,38 @@ if data is not None and models_loaded:
             fig = go.Figure()
             
             for model_name, metrics in results.items():
-                fig.add_trace(go.Scatter(
-                    x=metrics['actual'][:, selected_target_idx],
-                    y=metrics['predictions'][:, selected_target_idx],
-                    mode='markers',
-                    name=model_name,
-                    marker=dict(size=8, opacity=0.6)
-                ))
+                try:
+                    actual_vals = metrics['actual'][:, selected_target_idx]
+                    pred_vals = metrics['predictions'][:, selected_target_idx]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=actual_vals,
+                        y=pred_vals,
+                        mode='markers',
+                        name=model_name,
+                        marker=dict(size=8, opacity=0.6)
+                    ))
+                except Exception as e:
+                    st.warning(f"Could not plot {model_name}: {str(e)}")
             
             # Add perfect prediction line
-            min_val = min(results[list(results.keys())[0]]['actual'][:, selected_target_idx])
-            max_val = max(results[list(results.keys())[0]]['actual'][:, selected_target_idx])
-            fig.add_trace(go.Scatter(
-                x=[min_val, max_val],
-                y=[min_val, max_val],
-                mode='lines',
-                name='Perfect Prediction',
-                line=dict(color='red', dash='dash')
-            ))
+            try:
+                all_actuals = []
+                for metrics in results.values():
+                    all_actuals.extend(metrics['actual'][:, selected_target_idx])
+                
+                min_val = min(all_actuals)
+                max_val = max(all_actuals)
+                
+                fig.add_trace(go.Scatter(
+                    x=[min_val, max_val],
+                    y=[min_val, max_val],
+                    mode='lines',
+                    name='Perfect Prediction',
+                    line=dict(color='red', dash='dash', width=2)
+                ))
+            except:
+                pass
             
             fig.update_layout(
                 title=f"Predicted vs Actual: {targets[selected_target_idx]}",
@@ -629,11 +828,53 @@ if data is not None and models_loaded:
             
             st.plotly_chart(fig, use_container_width=True)
             
+            # Residual plots
+            st.markdown("---")
+            st.subheader("📉 Residual Analysis")
+            
+            fig = go.Figure()
+            
+            for model_name, metrics in results.items():
+                try:
+                    actual_vals = metrics['actual'][:, selected_target_idx]
+                    pred_vals = metrics['predictions'][:, selected_target_idx]
+                    residuals = actual_vals - pred_vals
+                    
+                    fig.add_trace(go.Scatter(
+                        x=pred_vals,
+                        y=residuals,
+                        mode='markers',
+                        name=model_name,
+                        marker=dict(size=8, opacity=0.6)
+                    ))
+                except Exception as e:
+                    st.warning(f"Could not plot residuals for {model_name}: {str(e)}")
+            
+            # Add zero line
+            fig.add_hline(y=0, line_dash="dash", line_color="red", 
+                         annotation_text="Zero Error")
+            
+            fig.update_layout(
+                title=f"Residual Plot: {targets[selected_target_idx]}",
+                xaxis_title="Predicted Values",
+                yaxis_title="Residuals (Actual - Predicted)",
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
         else:
-            st.info("👆 Please generate predictions in the 'Model Predictions' tab first!")
+            st.info("👆 Please generate batch predictions in the 'Batch Predictions' tab first!")
 
 else:
     # Welcome/Error screen
+    if data is None:
+        st.warning("""
+        ### ⚠️ Data File Not Found!
+        
+        Please ensure `data.csv` is in the same directory as this script.
+        """)
+    
     if not models_loaded:
         st.error("""
         ### ❌ Models Not Found!
@@ -641,16 +882,16 @@ else:
         Please ensure the following model files are in the same directory as this script:
         - `RandomForest_Tuned.pkl`
         - `DecisionTree_Tuned.pkl`
-        - `NeuralNetwork_Tuned.pkl`
+        - `NeuralNetwork_Tuned.pkl` (or .h5 or .keras)
         - `XGBoost_Tuned_LF_Rank_Score.pkl`
         - `XGBoost_Tuned_LF_dG.pkl`
         - `XGBoost_Tuned_LF_VSscore.pkl`
         - `XGBoost_Tuned_LF_LE.pkl`
         """)
-    else:
+    
+    if data is not None and models_loaded:
         st.markdown("""
         <div style='text-align: center; padding: 50px;'>
-            <img src='https://img.icons8.com/fluency/96/000000/molecule.png' width='150'>
             <h2 style='color: #667eea; margin-top: 30px;'>Welcome to the Molecular Docking Prediction Platform!</h2>
             <p style='font-size: 20px; color: #555; margin-top: 20px;'>
                 Using pre-trained models to predict molecular binding affinities.
