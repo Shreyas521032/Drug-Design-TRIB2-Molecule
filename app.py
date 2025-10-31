@@ -95,9 +95,10 @@ def load_data(path="data.csv"):
 with st.sidebar:
     st.image("https://img.icons8.com/fluency/96/000000/molecule.png", width=80)
     st.title("⚙️ Control Panel")
-    
-    uploaded_file = load_data("data.csv")
-    
+
+    # Internally load dataset (no user interaction)
+    data = load_data("data.csv")
+
     st.markdown("---")
     st.subheader("🎯 Model Selection")
     model_choice = st.multiselect(
@@ -105,11 +106,16 @@ with st.sidebar:
         ["Random Forest", "Decision Tree", "XGBoost", "Neural Network"],
         default=["Random Forest", "XGBoost"]
     )
-    
+
     st.markdown("---")
     st.subheader("🔧 Analysis Options")
     show_outliers = st.checkbox("Remove Outliers", value=True)
     test_size = st.slider("Test Set Size (%)", 10, 40, 20) / 100
+
+    st.markdown("---")
+
+# --- Main Content ---
+st.success("✅ Dataset loaded internally!")
     
     st.markdown("---")
 
