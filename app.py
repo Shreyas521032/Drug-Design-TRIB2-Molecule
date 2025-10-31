@@ -7,23 +7,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.tree import DecisionTreeRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-import xgboost as xgb
-from tensorflow import keras
 from tensorflow.keras.models import load_model
 import joblib
 import os
-import requests
-from io import StringIO
 import warnings
 warnings.filterwarnings('ignore')
 
 # Page configuration
 st.set_page_config(
-    page_title="Molecular Docking Analysis Platform",
+    page_title="Molecular Docking Prediction Platform",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -79,51 +72,60 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Title and description
-st.markdown("<h1>🧬 Molecular Docking Analysis Platform</h1>", unsafe_allow_html=True)
+st.markdown("<h1>🧬 Molecular Docking Prediction Platform</h1>", unsafe_allow_html=True)
 st.markdown("""
 <div style='text-align: center; padding: 20px; background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-radius: 10px; margin-bottom: 30px;'>
-    <h3 style='color: #667eea;'>Advanced Machine Learning for Drug Discovery</h3>
-    <p style='font-size: 18px; color: #555;'>Predicting molecular binding affinity using state-of-the-art regression models</p>
+    <h3 style='color: #667eea;'>Pre-trained Models for Drug Discovery</h3>
+    <p style='font-size: 18px; color: #555;'>Predicting molecular binding affinity using optimized regression models</p>
 </div>
 """, unsafe_allow_html=True)
 
+@st.cache_data
 def load_data(path="data.csv"):
     """Load dataset once and cache it for performance."""
     return pd.read_csv(path)
+
+@st.cache_resource
+def load_models():
+    """Load all pre-trained models."""
+    models = {}
+    model_paths = {
+        'Random Forest': 'RandomForest_Tuned.pkl',
+        'Decision Tree': 'DecisionTree_Tuned.pkl',
+        'Neural Network': 'NeuralNetwork_Tuned.pkl',
+        'XGBoost': {
+            'LF Rank Score': 'XGBoost_Tuned_LF_Rank_Score.pkl',
+            'LF dG': 'XGBoost_Tuned_LF_dG.pkl',
+            'LF VSscore': 'XGBoost_Tuned_LF_VSscore.pkl',
+            'LF LE': 'XGBoost_Tuned_LF_LE.pkl'
+        }
+    }
     
-# Sidebar
-with st.sidebar:
-    st.title("⚙️ Control Panel")
+    try:
+        # Load RF, DT models
+        for model_name in ['Random Forest', 'Decision Tree']:
+            if os.path.exists(model_paths[model_name]):
+                models[model_name] = joblib.load(model_paths[model_name])
+        
+        # Load Neural Network
+        if os.path.exists(model_paths['Neural Network']):
+            models['Neural Network'] = load_model(model_paths['Neural Network'])
+        
+        # Load XGBoost models
+        xgb_models = {}
+        for target, path in model_paths['XGBoost'].items():
+            if os.path.exists(path):
+                xgb_models[target] = joblib.load(path)
+        if xgb_models:
+            models['XGBoost'] = xgb_models
+        
+        return models, True
+    except Exception as e:
+        st.error(f"Error loading models: {str(e)}")
+        return {}, False
 
-    # Internally load dataset (no user interaction)
-    data = load_data("data.csv")
-
-    st.markdown("---")
-    st.subheader("🎯 Model Selection")
-    model_choice = st.multiselect(
-        "Choose Models to Train:",
-        ["Random Forest", "Decision Tree", "XGBoost", "Neural Network"],
-        default=["Random Forest", "XGBoost"]
-    )
-
-    st.markdown("---")
-    st.subheader("🔧 Analysis Options")
-    show_outliers = st.checkbox("Remove Outliers", value=True)
-    test_size = st.slider("Test Set Size (%)", 10, 40, 20) / 100
-
-    st.markdown("---")    
-
-# Load data function
-@st.cache_data
-def load_data(file):
-    if file.name.endswith('.csv'):
-        df = pd.read_csv(file)
-    else:
-        df = pd.read_excel(file)
-    return df
-
-# Preprocessing function
 def preprocess_data(df, remove_outliers=True):
+    """Clean and preprocess the data."""
     # Clean column names
     df = df.rename(columns=lambda x: x.strip())
     
@@ -153,18 +155,48 @@ def preprocess_data(df, remove_outliers=True):
     
     return df, original_shape, df.shape
 
-# Main app logic
-if data is not None:
-    # Load data
-    df = data
+# Sidebar
+with st.sidebar:
+    st.title("⚙️ Control Panel")
     
+    # Load models
+    models, models_loaded = load_models()
+    
+    if models_loaded:
+        st.success(f"✅ {len(models)} model(s) loaded successfully!")
+        st.markdown("**Available Models:**")
+        for model_name in models.keys():
+            st.markdown(f"- {model_name}")
+    else:
+        st.error("❌ No models found! Please ensure model files are in the same directory.")
+    
+    st.markdown("---")
+    st.subheader("🎯 Model Selection")
+    available_models = list(models.keys())
+    model_choice = st.multiselect(
+        "Choose Models for Prediction:",
+        available_models,
+        default=available_models if available_models else []
+    )
+
+    st.markdown("---")
+    st.subheader("🔧 Analysis Options")
+    show_outliers = st.checkbox("Remove Outliers", value=True)
+
+    st.markdown("---")
+
+# Load data
+data = load_data("data.csv")
+
+# Main app logic
+if data is not None and models_loaded:
     # Preprocessing
-    df_processed, orig_shape, clean_shape = preprocess_data(df, show_outliers)
+    df_processed, orig_shape, clean_shape = preprocess_data(data, show_outliers)
     
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Data Overview", "🔍 EDA", "📈 Correlation Analysis", 
-        "🤖 Model Training", "📉 Results Comparison", "🎯 Predictions"
+        "🎯 Model Predictions", "📉 Results Comparison"
     ])
     
     # Tab 1: Data Overview
@@ -323,110 +355,112 @@ if data is not None:
             top_negative = corr_pairs.nsmallest(10)
             st.dataframe(pd.DataFrame({'Correlation': top_negative}))
     
-    # Tab 4: Model Training
+    # Tab 4: Model Predictions
     with tab4:
-        st.header("🤖 Model Training & Evaluation")
+        st.header("🎯 Model Predictions on Test Data")
         
-        if st.button("🚀 Train Models", type="primary"):
-            with st.spinner("Training models... This may take a moment."):
-                # Prepare data
-                features_to_scale = df_processed.drop(columns=['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']).columns
-                scaler = StandardScaler()
-                scaled_features = scaler.fit_transform(df_processed[features_to_scale])
-                df_scaled = pd.DataFrame(scaled_features, columns=features_to_scale, index=df_processed.index)
-                
-                X = df_scaled
-                y = df_processed[['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']]
-                
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
-                
-                results = {}
-                
-                # Random Forest
-                if "Random Forest" in model_choice:
-                    progress_bar = st.progress(0)
-                    st.write("Training Random Forest...")
-                    rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                    rf_model.fit(X_train, y_train)
-                    y_pred_rf = rf_model.predict(X_test)
+        if model_choice:
+            if st.button("🚀 Generate Predictions", type="primary"):
+                with st.spinner("Generating predictions..."):
+                    # Prepare data
+                    features_to_scale = df_processed.drop(columns=['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']).columns
+                    scaler = StandardScaler()
+                    scaled_features = scaler.fit_transform(df_processed[features_to_scale])
+                    df_scaled = pd.DataFrame(scaled_features, columns=features_to_scale, index=df_processed.index)
                     
-                    mse_rf = mean_squared_error(y_test, y_pred_rf, multioutput='raw_values')
-                    r2_rf = r2_score(y_test, y_pred_rf, multioutput='raw_values')
-                    mae_rf = mean_absolute_error(y_test, y_pred_rf, multioutput='raw_values')
+                    X = df_scaled
+                    y = df_processed[['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']]
                     
-                    results['Random Forest'] = {
-                        'MSE': mse_rf, 'R2': r2_rf, 'MAE': mae_rf,
-                        'predictions': y_pred_rf
-                    }
-                    progress_bar.progress(25)
-                
-                # Decision Tree
-                if "Decision Tree" in model_choice:
-                    st.write("Training Decision Tree...")
-                    dt_model = DecisionTreeRegressor(random_state=42)
-                    dt_model.fit(X_train, y_train)
-                    y_pred_dt = dt_model.predict(X_test)
+                    results = {}
+                    targets = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
                     
-                    mse_dt = mean_squared_error(y_test, y_pred_dt, multioutput='raw_values')
-                    r2_dt = r2_score(y_test, y_pred_dt, multioutput='raw_values')
-                    mae_dt = mean_absolute_error(y_test, y_pred_dt, multioutput='raw_values')
+                    # Random Forest
+                    if "Random Forest" in model_choice and "Random Forest" in models:
+                        st.write("📊 Predicting with Random Forest...")
+                        y_pred_rf = models['Random Forest'].predict(X)
+                        
+                        mse_rf = mean_squared_error(y, y_pred_rf, multioutput='raw_values')
+                        r2_rf = r2_score(y, y_pred_rf, multioutput='raw_values')
+                        mae_rf = mean_absolute_error(y, y_pred_rf, multioutput='raw_values')
+                        
+                        results['Random Forest'] = {
+                            'MSE': mse_rf, 'R2': r2_rf, 'MAE': mae_rf,
+                            'predictions': y_pred_rf,
+                            'actual': y.values
+                        }
                     
-                    results['Decision Tree'] = {
-                        'MSE': mse_dt, 'R2': r2_dt, 'MAE': mae_dt,
-                        'predictions': y_pred_dt
-                    }
-                    progress_bar.progress(50)
-                
-                # XGBoost
-                if "XGBoost" in model_choice:
-                    st.write("Training XGBoost...")
-                    xgb_preds = []
-                    xgb_mse = []
-                    xgb_r2 = []
-                    xgb_mae = []
+                    # Decision Tree
+                    if "Decision Tree" in model_choice and "Decision Tree" in models:
+                        st.write("📊 Predicting with Decision Tree...")
+                        y_pred_dt = models['Decision Tree'].predict(X)
+                        
+                        mse_dt = mean_squared_error(y, y_pred_dt, multioutput='raw_values')
+                        r2_dt = r2_score(y, y_pred_dt, multioutput='raw_values')
+                        mae_dt = mean_absolute_error(y, y_pred_dt, multioutput='raw_values')
+                        
+                        results['Decision Tree'] = {
+                            'MSE': mse_dt, 'R2': r2_dt, 'MAE': mae_dt,
+                            'predictions': y_pred_dt,
+                            'actual': y.values
+                        }
                     
-                    for target in y_train.columns:
-                        xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, random_state=42)
-                        xgb_model.fit(X_train, y_train[target])
-                        pred = xgb_model.predict(X_test)
-                        xgb_preds.append(pred)
-                        xgb_mse.append(mean_squared_error(y_test[target], pred))
-                        xgb_r2.append(r2_score(y_test[target], pred))
-                        xgb_mae.append(mean_absolute_error(y_test[target], pred))
+                    # XGBoost
+                    if "XGBoost" in model_choice and "XGBoost" in models:
+                        st.write("📊 Predicting with XGBoost...")
+                        xgb_preds = []
+                        xgb_mse = []
+                        xgb_r2 = []
+                        xgb_mae = []
+                        
+                        for target in targets:
+                            if target in models['XGBoost']:
+                                pred = models['XGBoost'][target].predict(X)
+                                xgb_preds.append(pred)
+                                xgb_mse.append(mean_squared_error(y[target], pred))
+                                xgb_r2.append(r2_score(y[target], pred))
+                                xgb_mae.append(mean_absolute_error(y[target], pred))
+                        
+                        if xgb_preds:
+                            results['XGBoost'] = {
+                                'MSE': np.array(xgb_mse), 'R2': np.array(xgb_r2), 'MAE': np.array(xgb_mae),
+                                'predictions': np.array(xgb_preds).T,
+                                'actual': y.values
+                            }
                     
-                    results['XGBoost'] = {
-                        'MSE': np.array(xgb_mse), 'R2': np.array(xgb_r2), 'MAE': np.array(xgb_mae),
-                        'predictions': np.array(xgb_preds).T
-                    }
-                    progress_bar.progress(75)
-                
-                # Neural Network
-                if "Neural Network" in model_choice:
-                    st.write("Training Neural Network...")
-                    nn_model = Sequential([
-                        Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
-                        Dense(32, activation='relu'),
-                        Dense(y_train.shape[1])
-                    ])
-                    nn_model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-                    nn_model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=0)
+                    # Neural Network
+                    if "Neural Network" in model_choice and "Neural Network" in models:
+                        st.write("📊 Predicting with Neural Network...")
+                        y_pred_nn = models['Neural Network'].predict(X, verbose=0)
+                        
+                        mse_nn = mean_squared_error(y, y_pred_nn, multioutput='raw_values')
+                        r2_nn = r2_score(y, y_pred_nn, multioutput='raw_values')
+                        mae_nn = mean_absolute_error(y, y_pred_nn, multioutput='raw_values')
+                        
+                        results['Neural Network'] = {
+                            'MSE': mse_nn, 'R2': r2_nn, 'MAE': mae_nn,
+                            'predictions': y_pred_nn,
+                            'actual': y.values
+                        }
                     
-                    y_pred_nn = nn_model.predict(X_test)
-                    mse_nn = mean_squared_error(y_test, y_pred_nn, multioutput='raw_values')
-                    r2_nn = r2_score(y_test, y_pred_nn, multioutput='raw_values')
-                    mae_nn = mean_absolute_error(y_test, y_pred_nn, multioutput='raw_values')
+                    st.session_state['results'] = results
+                    st.session_state['y_true'] = y
+                    st.session_state['targets'] = targets
                     
-                    results['Neural Network'] = {
-                        'MSE': mse_nn, 'R2': r2_nn, 'MAE': mae_nn,
-                        'predictions': y_pred_nn
-                    }
-                    progress_bar.progress(100)
-                
-                st.session_state['results'] = results
-                st.session_state['y_test'] = y_test
-                st.session_state['targets'] = targets
-                
-                st.success("✅ All models trained successfully!")
+                    st.success("✅ Predictions generated successfully!")
+                    
+                    # Show sample predictions
+                    st.subheader("📋 Sample Predictions")
+                    for model_name, metrics in results.items():
+                        st.markdown(f"**{model_name}:**")
+                        pred_df = pd.DataFrame(
+                            metrics['predictions'][:10],
+                            columns=targets
+                        )
+                        pred_df.index.name = "Sample"
+                        st.dataframe(pred_df, use_container_width=True)
+                        st.markdown("---")
+        else:
+            st.info("👈 Please select at least one model from the sidebar!")
     
     # Tab 5: Results Comparison
     with tab5:
@@ -434,7 +468,6 @@ if data is not None:
         
         if 'results' in st.session_state:
             results = st.session_state['results']
-            y_test = st.session_state['y_test']
             targets = st.session_state['targets']
             
             # Create comparison dataframe
@@ -489,69 +522,83 @@ if data is not None:
                     <p><strong>Best Model:</strong> {best_model['Model']}</p>
                     <p><strong>R² Score:</strong> {best_model['R² Score']:.4f}</p>
                     <p><strong>MSE:</strong> {best_model['MSE']:.4f}</p>
+                    <p><strong>MAE:</strong> {best_model['MAE']:.4f}</p>
                 </div>
                 """, unsafe_allow_html=True)
+            
+            # Prediction vs Actual plots
+            st.markdown("---")
+            st.subheader("📈 Prediction vs Actual Values")
+            
+            selected_target_idx = st.selectbox("Select Target Variable", 
+                                               range(len(targets)), 
+                                               format_func=lambda x: targets[x])
+            
+            fig = go.Figure()
+            
+            for model_name, metrics in results.items():
+                fig.add_trace(go.Scatter(
+                    x=metrics['actual'][:, selected_target_idx],
+                    y=metrics['predictions'][:, selected_target_idx],
+                    mode='markers',
+                    name=model_name,
+                    marker=dict(size=8, opacity=0.6)
+                ))
+            
+            # Add perfect prediction line
+            min_val = min(results[list(results.keys())[0]]['actual'][:, selected_target_idx])
+            max_val = max(results[list(results.keys())[0]]['actual'][:, selected_target_idx])
+            fig.add_trace(go.Scatter(
+                x=[min_val, max_val],
+                y=[min_val, max_val],
+                mode='lines',
+                name='Perfect Prediction',
+                line=dict(color='red', dash='dash')
+            ))
+            
+            fig.update_layout(
+                title=f"Predicted vs Actual: {targets[selected_target_idx]}",
+                xaxis_title="Actual Values",
+                yaxis_title="Predicted Values",
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
         else:
-            st.info("👆 Please train models in the 'Model Training' tab first!")
-    
-    # Tab 6: Predictions
-    with tab6:
-        st.header("🎯 Make Predictions")
-        
-        if 'results' in st.session_state:
-            st.subheader("🔮 Input Molecular Properties")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                mw = st.number_input("Molecular Weight (MW)", 200.0, 600.0, 400.0)
-                atoms = st.number_input("Number of Atoms", 15, 40, 25)
-            
-            with col2:
-                slogp = st.number_input("SlogP", 1.0, 7.0, 4.0)
-                tpsa = st.number_input("TPSA", 40.0, 150.0, 80.0)
-            
-            with col3:
-                flexibility = st.number_input("Flexibility", 0.5, 10.0, 3.0)
-                rb = st.number_input("Rotatable Bonds", 2, 12, 5)
-            
-            with col4:
-                hba = st.number_input("H-Bond Acceptors", 3, 12, 6)
-                hbd = st.number_input("H-Bond Donors", 1, 5, 2)
-            
-            if st.button("🚀 Predict Docking Scores", type="primary"):
-                st.success("Prediction feature coming soon! This will predict binding affinity based on your input.")
-        else:
-            st.info("👆 Please train models first!")
+            st.info("👆 Please generate predictions in the 'Model Predictions' tab first!")
 
 else:
-    # Welcome screen
-    st.markdown("""
-    <div style='text-align: center; padding: 50px;'>
-        <img src='https://img.icons8.com/fluency/96/000000/molecule.png' width='150'>
-        <h2 style='color: #667eea; margin-top: 30px;'>Welcome to the Molecular Docking Analysis Platform!</h2>
-        <p style='font-size: 20px; color: #555; margin-top: 20px;'>
-            Upload your molecular dataset to begin analyzing binding affinities and training prediction models.
-        </p>
-        <div style='margin-top: 40px; padding: 30px; background: rgba(102, 126, 234, 0.1); border-radius: 10px;'>
-            <h3 style='color: #764ba2;'>✨ Key Features:</h3>
-            <ul style='text-align: left; font-size: 18px; color: #555; max-width: 600px; margin: 20px auto;'>
-                <li>📊 Comprehensive data exploration and visualization</li>
-                <li>🧬 Advanced molecular property analysis</li>
-                <li>🤖 Multiple machine learning models (RF, DT, XGBoost, NN)</li>
-                <li>📈 Interactive correlation analysis</li>
-                <li>🎯 Real-time predictions and comparisons</li>
-                <li>📉 Detailed performance metrics</li>
-            </ul>
+    # Welcome/Error screen
+    if not models_loaded:
+        st.error("""
+        ### ❌ Models Not Found!
+        
+        Please ensure the following model files are in the same directory as this script:
+        - `RandomForest_Tuned.pkl`
+        - `DecisionTree_Tuned.pkl`
+        - `NeuralNetwork_Tuned.pkl`
+        - `XGBoost_Tuned_LF_Rank_Score.pkl`
+        - `XGBoost_Tuned_LF_dG.pkl`
+        - `XGBoost_Tuned_LF_VSscore.pkl`
+        - `XGBoost_Tuned_LF_LE.pkl`
+        """)
+    else:
+        st.markdown("""
+        <div style='text-align: center; padding: 50px;'>
+            <img src='https://img.icons8.com/fluency/96/000000/molecule.png' width='150'>
+            <h2 style='color: #667eea; margin-top: 30px;'>Welcome to the Molecular Docking Prediction Platform!</h2>
+            <p style='font-size: 20px; color: #555; margin-top: 20px;'>
+                Using pre-trained models to predict molecular binding affinities.
+            </p>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #888; padding: 20px;'>
-    <p>🧬 Molecular Docking Analysis Platform | Powered by Machine Learning</p>
+    <p>🧬 Molecular Docking Prediction Platform | Powered by Pre-trained ML Models</p>
     <p>Built with Streamlit, Scikit-learn, XGBoost, TensorFlow & Plotly</p>
 </div>
 """, unsafe_allow_html=True)
