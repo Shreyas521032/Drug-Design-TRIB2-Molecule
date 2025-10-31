@@ -89,10 +89,11 @@ def load_data(path="data.csv"):
 def load_models():
     """Load all pre-trained models."""
     models = {}
+    errors = []
     model_paths = {
         'Random Forest': 'RandomForest_Tuned.pkl',
         'Decision Tree': 'DecisionTree_Tuned.pkl',
-        'Neural Network': 'NeuralNetwork_Tuned.pkl',
+        'Neural Network': ['NeuralNetwork_Tuned.pkl', 'NeuralNetwork_Tuned.h5', 'NeuralNetwork_Tuned.keras'],
         'XGBoost': {
             'LF Rank Score': 'XGBoost_Tuned_LF_Rank_Score.pkl',
             'LF dG': 'XGBoost_Tuned_LF_dG.pkl',
@@ -101,28 +102,53 @@ def load_models():
         }
     }
     
-    try:
-        # Load RF, DT models
-        for model_name in ['Random Forest', 'Decision Tree']:
+    # Load RF, DT models
+    for model_name in ['Random Forest', 'Decision Tree']:
+        try:
             if os.path.exists(model_paths[model_name]):
                 models[model_name] = joblib.load(model_paths[model_name])
-        
-        # Load Neural Network
-        if os.path.exists(model_paths['Neural Network']):
-            models['Neural Network'] = load_model(model_paths['Neural Network'])
-        
-        # Load XGBoost models
-        xgb_models = {}
-        for target, path in model_paths['XGBoost'].items():
+        except Exception as e:
+            errors.append(f"{model_name}: {str(e)}")
+    
+    # Load Neural Network (try multiple formats)
+    nn_loaded = False
+    for nn_path in model_paths['Neural Network']:
+        if os.path.exists(nn_path):
+            try:
+                if nn_path.endswith('.pkl'):
+                    # Try loading as joblib first (sklearn MLPRegressor or similar)
+                    models['Neural Network'] = joblib.load(nn_path)
+                    nn_loaded = True
+                    break
+            except:
+                try:
+                    # Try loading as Keras model
+                    models['Neural Network'] = load_model(nn_path)
+                    nn_loaded = True
+                    break
+                except Exception as e:
+                    errors.append(f"Neural Network ({nn_path}): {str(e)}")
+    
+    # Load XGBoost models
+    xgb_models = {}
+    for target, path in model_paths['XGBoost'].items():
+        try:
             if os.path.exists(path):
                 xgb_models[target] = joblib.load(path)
-        if xgb_models:
-            models['XGBoost'] = xgb_models
-        
-        return models, True
-    except Exception as e:
-        st.error(f"Error loading models: {str(e)}")
-        return {}, False
+        except Exception as e:
+            errors.append(f"XGBoost-{target}: {str(e)}")
+    
+    if xgb_models:
+        models['XGBoost'] = xgb_models
+    
+    # Show errors if any
+    if errors:
+        with st.sidebar:
+            with st.expander("⚠️ Model Loading Warnings", expanded=False):
+                for error in errors:
+                    st.warning(error)
+    
+    return models, len(models) > 0
 
 def preprocess_data(df, remove_outliers=True):
     """Clean and preprocess the data."""
