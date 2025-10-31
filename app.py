@@ -117,7 +117,6 @@ with st.sidebar:
 # --- Main Content ---
 st.success("✅ Dataset loaded internally!")
     
-    st.markdown("---")
 
 # Load data function
 @st.cache_data
