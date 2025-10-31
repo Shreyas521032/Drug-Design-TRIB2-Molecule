@@ -7,3 +7,4 @@ scikit-learn
 xgboost
 lime
 plotly
+tensorflow
