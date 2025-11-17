@@ -574,7 +574,7 @@ if data is not None and models_loaded:
     
     # Tab 5: Batch Predictions
     with tab5:
-        st.header("📉 Batch Predictions on Test Data")
+        st.header("📉 Batch Predictions")
         
         if model_choice:
             if st.button("🚀 Generate Batch Predictions", type="primary"):
