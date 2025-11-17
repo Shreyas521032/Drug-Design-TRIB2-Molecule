@@ -335,7 +335,7 @@ if data is not None and models_loaded:
         target_info = pd.DataFrame({
             'Feature': ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE'],
             'Description': [
-                'Ligand Fit Ranking Score',
+                'Lead Finder Ranking Score',
                 'Binding Free Energy',
                 'Virtual Screening Score',
                 'Ligand Efficiency'
