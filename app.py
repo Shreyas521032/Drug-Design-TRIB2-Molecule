@@ -681,7 +681,7 @@ if data is not None and models_loaded:
                     st.success("✅ Predictions generated successfully!")
                     
                     # Show sample predictions
-                    st.subheader("📋 Sample Predictions (First 10)")
+                    st.subheader("📋 Sample Predictions")
                     for model_name, metrics in results.items():
                         st.markdown(f"**{model_name}:**")
                         try:
