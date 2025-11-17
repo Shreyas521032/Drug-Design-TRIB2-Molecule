@@ -579,7 +579,6 @@ if data is not None and models_loaded:
         if model_choice:
             if st.button("🚀 Generate Batch Predictions", type="primary"):
                 with st.spinner("Generating predictions..."):
-                    # Prepare data
                     features_to_scale = df_processed.drop(columns=['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']).columns
                     scaled_features = scaler.transform(df_processed[features_to_scale])
                     df_scaled = pd.DataFrame(scaled_features, columns=features_to_scale, index=df_processed.index)
@@ -590,7 +589,6 @@ if data is not None and models_loaded:
                     results = {}
                     targets = ['LF Rank Score', 'LF dG', 'LF VSscore', 'LF LE']
                     
-                    # Random Forest
                     if "Random Forest" in model_choice and "Random Forest" in models:
                         st.write("📊 Predicting with Random Forest...")
                         try:
@@ -611,7 +609,6 @@ if data is not None and models_loaded:
                         except Exception as e:
                             st.error(f"Error with Random Forest: {str(e)}")
                     
-                    # Decision Tree
                     if "Decision Tree" in model_choice and "Decision Tree" in models:
                         st.write("📊 Predicting with Decision Tree...")
                         try:
@@ -632,7 +629,6 @@ if data is not None and models_loaded:
                         except Exception as e:
                             st.error(f"Error with Decision Tree: {str(e)}")
                     
-                    # XGBoost
                     if "XGBoost" in model_choice and "XGBoost" in models:
                         st.write("📊 Predicting with XGBoost...")
                         try:
@@ -658,7 +654,6 @@ if data is not None and models_loaded:
                         except Exception as e:
                             st.error(f"Error with XGBoost: {str(e)}")
                     
-                    # Neural Network
                     if "Neural Network" in model_choice and "Neural Network" in models:
                         st.write("📊 Predicting with Neural Network...")
                         try:
@@ -690,7 +685,7 @@ if data is not None and models_loaded:
                     for model_name, metrics in results.items():
                         st.markdown(f"**{model_name}:**")
                         try:
-                            preds = metrics['predictions'][:10]
+                            preds = metrics['predictions']
                             if len(preds.shape) == 1:
                                 pred_df = pd.DataFrame(
                                     preds.reshape(-1, 1),
